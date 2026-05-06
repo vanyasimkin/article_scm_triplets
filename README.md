@@ -1,4 +1,4 @@
-# Matrix SCM triplet diagnostic campaign
+# SCM triplet diagnostic campaign
 
 This folder contains a complete set of Python scripts for diagnostic calculations of three dielectric spheres in a rotating electric field using the validated **matrix SCM** implementation.
 
