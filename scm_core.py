@@ -60,7 +60,31 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 from scipy.linalg import lstsq
-from scipy.special import sph_harm
+
+try:
+    from scipy.special import sph_harm_y
+
+    def sph_harm_compat(m, l, theta_azimuth, phi_polar):
+        """
+        Compatibility wrapper.
+
+        Old scipy.special.sph_harm:
+            sph_harm_compat(m, l, theta, phi)
+            theta = azimuth angle [0, 2pi]
+            phi   = polar / colatitude angle [0, pi]
+
+        New scipy.special.sph_harm_y:
+            sph_harm_y(l, m, theta, phi)
+            theta = polar / colatitude angle [0, pi]
+            phi   = azimuth angle [0, 2pi]
+        """
+        return sph_harm_y(l, m, phi_polar, theta_azimuth)
+
+except ImportError:
+    from scipy.special import sph_harm
+
+    def sph_harm_compat(m, l, theta_azimuth, phi_polar):
+        return sph_harm(m, l, theta_azimuth, phi_polar)
 
 
 @dataclass(frozen=True)
@@ -147,7 +171,7 @@ def build_Y_matrix(normals: np.ndarray, lmax: int, include_l0: bool = True) -> T
     lms = lm_list(lmax, include_l0=include_l0)
     Y = np.zeros((normals.shape[0], len(lms)), dtype=complex)
     for col, (l, m) in enumerate(lms):
-        Y[:, col] = sph_harm(m, l, theta, phi)
+        Y[:, col] = sph_harm_compat(m, l, theta, phi)
     return Y, lms
 
 
@@ -197,7 +221,7 @@ def outgoing_basis_at_points(
     for col, (l, m) in enumerate(lms):
         if l == 0:
             continue
-        Ylm = sph_harm(m, l, theta, phi)
+        Ylm = sph_harm_compat(m, l, theta, phi)
         G[:, col] = (radius / R) ** (l + 1) * Ylm
     return G
 
