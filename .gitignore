@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+
+.ipynb_checkpoints/
+.DS_Store
+
+results_scm_triplets/
+*.npz
+*.npy
