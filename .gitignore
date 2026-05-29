@@ -8,3 +8,7 @@ __pycache__/
 results_scm_triplets/
 *.npz
 *.npy
+
+results_scm_3d_maps/
+*.npz
+*.npy
