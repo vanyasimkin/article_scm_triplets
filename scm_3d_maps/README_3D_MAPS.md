@@ -310,7 +310,7 @@ p at the end of U_parts -> particle index: 1, 2, 3
 
 ---
 
-### Stage 3 — compact asymmetric triangle map
+### Stage 3 — full general triangle map
 
 Скрипт:
 
@@ -318,63 +318,74 @@ p at the end of U_parts -> particle index: 1, 2, 3
 python -m scm_3d_maps.scripts.run_02_triangle_asymmetric_map
 ```
 
-Здесь используется отношение:
+Исторически файл называется `run_02_triangle_asymmetric_map.py`, но текущая версия выполняет **полный скан общей треугольной тройки** по двум независимым расстояниям:
 
 ```text
-q = r13 / r12.
+r12 = расстояние от частицы 1 до частицы 2,
+r13 = расстояние от частицы 1 до частицы 3.
 ```
 
 Сетка:
 
 ```text
-r12/d = 1.10, 1.20, 1.50, 2.00, 3.00
-q     = 1.00, 1.25, 1.50, 2.00
-```
-
-Точки, где
-
-```text
-r13/d > 5.0
-```
-
-автоматически пропускаются.
-
-Углы:
-
-```text
+r12/d = 1.10, 1.20, 1.35, 1.50, 1.75, 2.00, 2.50, 3.00, 4.00, 5.00
+r13/d = 1.10, 1.20, 1.35, 1.50, 1.75, 2.00, 2.50, 3.00, 4.00, 5.00
 gamma = 60, 75, 90, 105, 120, 135, 150, 165, 180 deg
-psi   = 0, 30, 60, 90 deg
-alpha = 0, 45, 90 deg
+psi   = 0, 15, 30, 45, 60, 75, 90 deg
+alpha = 0, 15, 30, 45, 60, 75, 90 deg
 ```
+
+Всего:
+
+```text
+10 * 10 * 9 * 7 * 7 = 44100 geometry points.
+```
+
+С учётом `N_theta = 8` это соответствует `352800` SCM-решениям энергии. Это большой расчёт, поэтому скрипт сохраняет промежуточный `.npz` после завершения каждого блока `r12`.
 
 Сохраняет:
 
 ```text
-results_scm_3d_maps/scm_triangle_asymmetric_map_lmax6.npz
+results_scm_3d_maps/scm_triangle_full_map_lmax6.npz
 ```
 
 #### Содержимое таблицы `.npz`
 
 ```text
 r12_over_d            (n_r12,)
+r13_over_d            (n_r13,)
 r12                   (n_r12,)
-q                     (n_q,)
-r13_over_d_rq         (n_r12, n_q)
-valid_rq              (n_r12, n_q)
+r13                   (n_r13,)
 gamma_deg             (n_gamma,)
 psi_deg               (n_psi,)
 alpha_deg             (n_alpha,)
+lmax                  scalar
 U_single_k            (n_orient,)
 U_single_analytic_k   (n_orient,)
-U_triplet_rqgpak      (n_r12, n_q, n_gamma, n_psi, n_alpha, n_orient)
-Phi3_avg_rqgpa        (n_r12, n_q, n_gamma, n_psi, n_alpha)
-Phi_pairwise_rqgpa    (n_r12, n_q, n_gamma, n_psi, n_alpha)
-Delta3_rqgpa          (n_r12, n_q, n_gamma, n_psi, n_alpha)
-eta3_pair_rqgpa       (n_r12, n_q, n_gamma, n_psi, n_alpha)
-eta3_sym_rqgpa        (n_r12, n_q, n_gamma, n_psi, n_alpha)
-edge_dist_rqgpae      (n_r12, n_q, n_gamma, n_psi, n_alpha, 3)
-edge_beta_rqgpae      (n_r12, n_q, n_gamma, n_psi, n_alpha, 3)
+U_triplet_rrgpak      (n_r12, n_r13, n_gamma, n_psi, n_alpha, n_orient)
+Phi3_avg_rrgpa        (n_r12, n_r13, n_gamma, n_psi, n_alpha)
+Phi_pairwise_rrgpa    (n_r12, n_r13, n_gamma, n_psi, n_alpha)
+Delta3_rrgpa          (n_r12, n_r13, n_gamma, n_psi, n_alpha)
+eta3_pair_rrgpa       (n_r12, n_r13, n_gamma, n_psi, n_alpha)
+eta3_sym_rrgpa        (n_r12, n_r13, n_gamma, n_psi, n_alpha)
+edge_dist_rrgpae      (n_r12, n_r13, n_gamma, n_psi, n_alpha, 3)
+edge_beta_rrgpae      (n_r12, n_r13, n_gamma, n_psi, n_alpha, 3)
+min_gap_rrgpa         (n_r12, n_r13, n_gamma, n_psi, n_alpha)
 ```
+
+Индексы:
+
+```text
+r    -> r12 index
+r    -> r13 index
+g    -> gamma index
+p    -> psi index
+a    -> alpha index
+k    -> field-orientation index
+e    -> edge index: 12, 13, 23
+```
+
+Физически частицы 2 и 3 одинаковы, поэтому обмен `r12 <-> r13` задаёт эквивалентную форму треугольника с перенумерацией внешних частиц. Полный квадрат `r12 × r13` сохранён намеренно: он позволяет затем проверить численную симметрию и не пересчитывать дополнительные асимметричные случаи.
 
 ---
 
@@ -429,7 +440,7 @@ python -m scm_3d_maps.scripts.analyze_3d_maps
 ```text
 results_scm_3d_maps/tables/pair_orientation_summary.csv
 results_scm_3d_maps/tables/triangle_isosceles_summary.csv
-results_scm_3d_maps/tables/triangle_asymmetric_summary.csv
+results_scm_3d_maps/tables/triangle_full_summary.csv
 results_scm_3d_maps/tables/lmax_convergence_summary.csv
 ```
 
@@ -462,7 +473,7 @@ python -m scm_3d_maps.scripts.run_00_pair_orientation_map
 python -m scm_3d_maps.scripts.run_01_triangle_isosceles_map
 ```
 
-Затем, при необходимости, компактный асимметричный блок:
+Затем полный скан общей треугольной карты:
 
 ```bash
 python -m scm_3d_maps.scripts.run_02_triangle_asymmetric_map

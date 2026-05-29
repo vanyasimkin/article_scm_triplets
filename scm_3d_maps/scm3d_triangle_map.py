@@ -30,9 +30,8 @@ from .scm3d_config import (
     ASYM_ALPHA_DEG,
     ASYM_GAMMA_DEG,
     ASYM_PSI_DEG,
-    ASYM_Q_LIST,
     ASYM_R12_OVER_D,
-    ASYM_R13_OVER_D_MAX,
+    ASYM_R13_OVER_D,
     GAMMA_DEG,
     LMAX_MAIN,
     PAIR_ORIENTATION_FILE,
@@ -209,9 +208,14 @@ def save_triangle_isosceles(
 
 
 def run_triangle_asymmetric_map() -> None:
-    """Run compact asymmetric-triangle map using q = r13/r12."""
+    """Run the full general-triangle map over r12 and r13.
+
+    Historical note: the public script is still named
+    run_02_triangle_asymmetric_map.py, but this function now performs the full
+    square scan over r12 and r13 rather than the older compact q-scan.
+    """
     t_start = time.time()
-    print_header("SCM 3D Stage 3: asymmetric triangle map")
+    print_header("SCM 3D Stage 3: full general triangle map")
 
     if not PAIR_ORIENTATION_FILE.exists():
         raise FileNotFoundError(f"Pair orientation map not found: {PAIR_ORIENTATION_FILE}")
@@ -221,143 +225,133 @@ def run_triangle_asymmetric_map() -> None:
     U_single_k, U_single_analytic_k = compute_single_energy_k(LMAX_MAIN, normals, PARAMS)
 
     r12_grid = ASYM_R12_OVER_D * PARAMS.d
-    q_grid = ASYM_Q_LIST.copy()
-    n_r, n_q, n_g, n_p, n_a, n_k = (
+    r13_grid = ASYM_R13_OVER_D * PARAMS.d
+    n_r12, n_r13, n_g, n_p, n_a, n_k = (
         len(r12_grid),
-        len(q_grid),
+        len(r13_grid),
         len(ASYM_GAMMA_DEG),
         len(ASYM_PSI_DEG),
         len(ASYM_ALPHA_DEG),
         PARAMS.n_orient,
     )
 
-    U_triplet_rqgpak = np.full((n_r, n_q, n_g, n_p, n_a, n_k), np.nan, dtype=float)
-    Phi3_avg_rqgpa = np.full((n_r, n_q, n_g, n_p, n_a), np.nan, dtype=float)
-    Phi_pairwise_rqgpa = np.full((n_r, n_q, n_g, n_p, n_a), np.nan, dtype=float)
-    Delta3_rqgpa = np.full((n_r, n_q, n_g, n_p, n_a), np.nan, dtype=float)
-    eta3_pair_rqgpa = np.full((n_r, n_q, n_g, n_p, n_a), np.nan, dtype=float)
-    eta3_sym_rqgpa = np.full((n_r, n_q, n_g, n_p, n_a), np.nan, dtype=float)
-    r13_over_d_rq = np.full((n_r, n_q), np.nan, dtype=float)
-    edge_dist_rqgpae = np.full((n_r, n_q, n_g, n_p, n_a, 3), np.nan, dtype=float)
-    edge_beta_rqgpae = np.full((n_r, n_q, n_g, n_p, n_a, 3), np.nan, dtype=float)
-    valid_rq = np.zeros((n_r, n_q), dtype=bool)
+    U_triplet_rrgpak = np.full((n_r12, n_r13, n_g, n_p, n_a, n_k), np.nan, dtype=float)
+    Phi3_avg_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
+    Phi_pairwise_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
+    Delta3_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
+    eta3_pair_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
+    eta3_sym_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
+    edge_dist_rrgpae = np.full((n_r12, n_r13, n_g, n_p, n_a, 3), np.nan, dtype=float)
+    edge_beta_rrgpae = np.full((n_r12, n_r13, n_g, n_p, n_a, 3), np.nan, dtype=float)
+    min_gap_rrgpa = np.full((n_r12, n_r13, n_g, n_p, n_a), np.nan, dtype=float)
 
-    total = n_r * n_q * n_g * n_p * n_a
+    total = n_r12 * n_r13 * n_g * n_p * n_a
     counter = 0
-    for ir, r12 in enumerate(r12_grid):
-        for iq, q in enumerate(q_grid):
-            r13 = float(q) * float(r12)
-            r13_over_d = r13 / PARAMS.d
-            r13_over_d_rq[ir, iq] = r13_over_d
-            valid = r13_over_d <= ASYM_R13_OVER_D_MAX + 1e-12
-            valid_rq[ir, iq] = valid
-            if not valid:
-                print(f"Skip r12/d={r12/PARAMS.d:.3f}, q={q:.2f}: r13/d={r13_over_d:.3f} > {ASYM_R13_OVER_D_MAX}")
-                continue
+    for ir12, r12 in enumerate(r12_grid):
+        for ir13, r13 in enumerate(r13_grid):
             for ig, gamma in enumerate(ASYM_GAMMA_DEG):
                 for ip, psi in enumerate(ASYM_PSI_DEG):
                     for ia, alpha in enumerate(ASYM_ALPHA_DEG):
                         counter += 1
                         print(
-                            f"\n[{counter}/{total}] r12/d={r12/PARAMS.d:.3f}, r13/d={r13_over_d:.3f}, "
-                            f"q={q:.2f}, gamma={gamma:.1f}, psi={psi:.1f}, alpha={alpha:.1f}"
+                            f"\n[{counter}/{total}] r12/d={r12/PARAMS.d:.3f}, r13/d={r13/PARAMS.d:.3f}, "
+                            f"gamma={gamma:.1f}, psi={psi:.1f}, alpha={alpha:.1f}"
                         )
                         centers = triangle_centers(r12, r13, gamma, psi, alpha)
                         info = edge_info(centers)
-                        edge_dist_rqgpae[ir, iq, ig, ip, ia] = info["distances"]
-                        edge_beta_rqgpae[ir, iq, ig, ip, ia] = info["beta_deg"]
+                        edge_dist_rrgpae[ir12, ir13, ig, ip, ia] = info["distances"]
+                        edge_beta_rrgpae[ir12, ir13, ig, ip, ia] = info["beta_deg"]
+                        min_gap_rrgpa[ir12, ir13, ig, ip, ia] = min_surface_gap_over_d(centers, PARAMS.d)
+
                         pairwise = pairwise_energy_from_edges(info["distances"], info["beta_deg"], pair_map)
-                        Phi_pairwise_rqgpa[ir, iq, ig, ip, ia] = pairwise
+                        Phi_pairwise_rrgpa[ir12, ir13, ig, ip, ia] = pairwise
 
                         t0 = time.time()
                         U_triplet_k, _ = compute_cluster_energy_k(centers, LMAX_MAIN, normals, PARAMS)
-                        U_triplet_rqgpak[ir, iq, ig, ip, ia] = U_triplet_k
+                        U_triplet_rrgpak[ir12, ir13, ig, ip, ia] = U_triplet_k
                         phi3 = float(np.mean(U_triplet_k - 3.0 * U_single_k))
-                        Phi3_avg_rqgpa[ir, iq, ig, ip, ia] = phi3
+                        Phi3_avg_rrgpa[ir12, ir13, ig, ip, ia] = phi3
                         delta = phi3 - pairwise
-                        Delta3_rqgpa[ir, iq, ig, ip, ia] = delta
-                        eta3_pair_rqgpa[ir, iq, ig, ip, ia] = eta_pair(delta, pairwise)
-                        eta3_sym_rqgpa[ir, iq, ig, ip, ia] = eta_sym(delta, phi3, pairwise)
+                        Delta3_rrgpa[ir12, ir13, ig, ip, ia] = delta
+                        eta3_pair_rrgpa[ir12, ir13, ig, ip, ia] = eta_pair(delta, pairwise)
+                        eta3_sym_rrgpa[ir12, ir13, ig, ip, ia] = eta_sym(delta, phi3, pairwise)
                         print(
                             f"  Phi3={phi3:+.8e} J, Pairwise={pairwise:+.8e} J, "
-                            f"Delta3={delta:+.8e} J, eta={eta3_pair_rqgpa[ir,iq,ig,ip,ia]:.3e}, "
+                            f"Delta3={delta:+.8e} J, eta={eta3_pair_rrgpa[ir12,ir13,ig,ip,ia]:.3e}, "
+                            f"min_gap/d={min_gap_rrgpa[ir12,ir13,ig,ip,ia]:.3f}, "
                             f"time={time.time()-t0:.2f} s"
                         )
         save_triangle_asymmetric(
             r12_grid,
-            q_grid,
-            r13_over_d_rq,
-            valid_rq,
+            r13_grid,
             U_single_k,
             U_single_analytic_k,
-            U_triplet_rqgpak,
-            Phi3_avg_rqgpa,
-            Phi_pairwise_rqgpa,
-            Delta3_rqgpa,
-            eta3_pair_rqgpa,
-            eta3_sym_rqgpa,
-            edge_dist_rqgpae,
-            edge_beta_rqgpae,
+            U_triplet_rrgpak,
+            Phi3_avg_rrgpa,
+            Phi_pairwise_rrgpa,
+            Delta3_rrgpa,
+            eta3_pair_rrgpa,
+            eta3_sym_rrgpa,
+            edge_dist_rrgpae,
+            edge_beta_rrgpae,
+            min_gap_rrgpa,
         )
         print("Saved intermediate:", TRIANGLE_ASYMMETRIC_FILE)
 
     save_triangle_asymmetric(
         r12_grid,
-        q_grid,
-        r13_over_d_rq,
-        valid_rq,
+        r13_grid,
         U_single_k,
         U_single_analytic_k,
-        U_triplet_rqgpak,
-        Phi3_avg_rqgpa,
-        Phi_pairwise_rqgpa,
-        Delta3_rqgpa,
-        eta3_pair_rqgpa,
-        eta3_sym_rqgpa,
-        edge_dist_rqgpae,
-        edge_beta_rqgpae,
+        U_triplet_rrgpak,
+        Phi3_avg_rrgpa,
+        Phi_pairwise_rrgpa,
+        Delta3_rrgpa,
+        eta3_pair_rrgpa,
+        eta3_sym_rrgpa,
+        edge_dist_rrgpae,
+        edge_beta_rrgpae,
+        min_gap_rrgpa,
     )
     print_header(f"Done. Saved: {TRIANGLE_ASYMMETRIC_FILE}")
     print(f"Total time = {(time.time()-t_start)/60:.2f} min")
 
-
 def save_triangle_asymmetric(
     r12_grid,
-    q_grid,
-    r13_over_d_rq,
-    valid_rq,
+    r13_grid,
     U_single_k,
     U_single_analytic_k,
-    U_triplet_rqgpak,
-    Phi3_avg_rqgpa,
-    Phi_pairwise_rqgpa,
-    Delta3_rqgpa,
-    eta3_pair_rqgpa,
-    eta3_sym_rqgpa,
-    edge_dist_rqgpae,
-    edge_beta_rqgpae,
+    U_triplet_rrgpak,
+    Phi3_avg_rrgpa,
+    Phi_pairwise_rrgpa,
+    Delta3_rrgpa,
+    eta3_pair_rrgpa,
+    eta3_sym_rrgpa,
+    edge_dist_rrgpae,
+    edge_beta_rrgpae,
+    min_gap_rrgpa,
 ) -> None:
     np.savez(
         TRIANGLE_ASYMMETRIC_FILE,
         r12_over_d=np.asarray(r12_grid) / PARAMS.d,
+        r13_over_d=np.asarray(r13_grid) / PARAMS.d,
         r12=np.asarray(r12_grid),
-        q=np.asarray(q_grid),
-        r13_over_d_rq=r13_over_d_rq,
+        r13=np.asarray(r13_grid),
         gamma_deg=ASYM_GAMMA_DEG,
         psi_deg=ASYM_PSI_DEG,
         alpha_deg=ASYM_ALPHA_DEG,
-        valid_rq=valid_rq,
         lmax=int(LMAX_MAIN),
         U_single_k=U_single_k,
         U_single_analytic_k=U_single_analytic_k,
-        U_triplet_rqgpak=U_triplet_rqgpak,
-        Phi3_avg_rqgpa=Phi3_avg_rqgpa,
-        Phi_pairwise_rqgpa=Phi_pairwise_rqgpa,
-        Delta3_rqgpa=Delta3_rqgpa,
-        eta3_pair_rqgpa=eta3_pair_rqgpa,
-        eta3_sym_rqgpa=eta3_sym_rqgpa,
-        edge_dist_rqgpae=edge_dist_rqgpae,
-        edge_beta_rqgpae=edge_beta_rqgpae,
+        U_triplet_rrgpak=U_triplet_rrgpak,
+        Phi3_avg_rrgpa=Phi3_avg_rrgpa,
+        Phi_pairwise_rrgpa=Phi_pairwise_rrgpa,
+        Delta3_rrgpa=Delta3_rrgpa,
+        eta3_pair_rrgpa=eta3_pair_rrgpa,
+        eta3_sym_rrgpa=eta3_sym_rrgpa,
+        edge_dist_rrgpae=edge_dist_rrgpae,
+        edge_beta_rrgpae=edge_beta_rrgpae,
+        min_gap_rrgpa=min_gap_rrgpa,
         n_orient=PARAMS.n_orient,
         n_quad=PARAMS.n_quad,
         a=PARAMS.a,

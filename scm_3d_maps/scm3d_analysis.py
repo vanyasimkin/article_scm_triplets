@@ -182,11 +182,119 @@ def analyze_isosceles_map() -> None:
 
 
 def analyze_asymmetric_map() -> None:
+    """Analyze the full general-triangle map.
+
+    The current output format uses arrays with dimensions
+        (r12, r13, gamma, psi, alpha).
+    A fallback for the older compact q-scan format is kept for compatibility.
+    """
     if not TRIANGLE_ASYMMETRIC_FILE.exists():
-        print("Skip asymmetric analysis: file not found", TRIANGLE_ASYMMETRIC_FILE)
+        print("Skip full-triangle analysis: file not found", TRIANGLE_ASYMMETRIC_FILE)
         return
 
     data = np.load(TRIANGLE_ASYMMETRIC_FILE)
+
+    # New full-scan format.
+    if "r13_over_d" in data.files and "Delta3_rrgpa" in data.files:
+        r12 = data["r12_over_d"]
+        r13 = data["r13_over_d"]
+        gamma = data["gamma_deg"]
+        psi = data["psi_deg"]
+        alpha = data["alpha_deg"]
+        phi3 = data["Phi3_avg_rrgpa"]
+        pairwise = data["Phi_pairwise_rrgpa"]
+        delta = data["Delta3_rrgpa"]
+        eta = data["eta3_pair_rrgpa"]
+        eta_sym = data["eta3_sym_rrgpa"]
+        min_gap = data["min_gap_rrgpa"] if "min_gap_rrgpa" in data.files else np.full_like(delta, np.nan)
+
+        rows: List[Dict[str, object]] = []
+        for i12, r12v in enumerate(r12):
+            for i13, r13v in enumerate(r13):
+                for ig, gv in enumerate(gamma):
+                    for ip, pv in enumerate(psi):
+                        for ia, av in enumerate(alpha):
+                            val = delta[i12, i13, ig, ip, ia]
+                            if not np.isfinite(val):
+                                continue
+                            rows.append(
+                                {
+                                    "r12_over_d": float(r12v),
+                                    "r13_over_d": float(r13v),
+                                    "gamma_deg": float(gv),
+                                    "psi_deg": float(pv),
+                                    "alpha_deg": float(av),
+                                    "Phi3_avg_J": float(phi3[i12, i13, ig, ip, ia]),
+                                    "Phi_pairwise_J": float(pairwise[i12, i13, ig, ip, ia]),
+                                    "Delta3_J": float(delta[i12, i13, ig, ip, ia]),
+                                    "eta3_pair": float(eta[i12, i13, ig, ip, ia]),
+                                    "eta3_sym": float(eta_sym[i12, i13, ig, ip, ia]),
+                                    "min_gap_over_d": float(min_gap[i12, i13, ig, ip, ia]),
+                                }
+                            )
+        save_csv(
+            TABLE_DIR / "triangle_full_summary.csv",
+            rows,
+            [
+                "r12_over_d",
+                "r13_over_d",
+                "gamma_deg",
+                "psi_deg",
+                "alpha_deg",
+                "Phi3_avg_J",
+                "Phi_pairwise_J",
+                "Delta3_J",
+                "eta3_pair",
+                "eta3_sym",
+                "min_gap_over_d",
+            ],
+        )
+
+        # Example maps for representative r12/r13/alpha combinations.
+        examples = [
+            (1.20, 1.20, 0.0),
+            (1.20, 2.00, 0.0),
+            (1.20, 2.00, 45.0),
+            (2.00, 1.20, 0.0),
+        ]
+        for r12_target, r13_target, alpha_target in examples:
+            i12 = _nearest_index(r12, r12_target)
+            i13 = _nearest_index(r13, r13_target)
+            ia = _nearest_index(alpha, alpha_target)
+            _heatmap(
+                x=gamma,
+                y=psi,
+                z=delta[i12, i13, :, :, ia].T,
+                xlabel="gamma, deg",
+                ylabel="psi, deg",
+                title=(
+                    f"Full triangle Delta3, J; r12/d={r12[i12]:.2f}, "
+                    f"r13/d={r13[i13]:.2f}, alpha={alpha[ia]:.0f}"
+                ),
+                path=(
+                    FIG_DIR
+                    / f"fig_full_triangle_Delta3_gamma_psi_r12_{r12[i12]:.2f}_r13_{r13[i13]:.2f}_alpha{alpha[ia]:.0f}.png"
+                ),
+            )
+
+        # Symmetry diagnostic: compare Delta3(r12,r13) and Delta3(r13,r12)
+        # at the same gamma/psi/alpha index. This is not the exact relabelling
+        # operation for arbitrary alpha, but it is a useful quick diagnostic.
+        if len(r12) == len(r13) and np.allclose(r12, r13):
+            diff = delta - np.swapaxes(delta, 0, 1)
+            denom = np.maximum(np.abs(delta) + np.abs(np.swapaxes(delta, 0, 1)), 1e-300)
+            sym = 2.0 * np.abs(diff) / denom
+            rows_sym: List[Dict[str, object]] = [
+                {
+                    "symmetry_metric_mean": float(np.nanmean(sym)),
+                    "symmetry_metric_max": float(np.nanmax(sym)),
+                    "note": "Quick r12/r13 swap diagnostic at fixed gamma, psi, alpha; exact particle relabelling may also change alpha.",
+                }
+            ]
+            save_csv(TABLE_DIR / "triangle_full_r12_r13_symmetry_diagnostic.csv", rows_sym, ["symmetry_metric_mean", "symmetry_metric_max", "note"])
+        return
+
+    # Older compact q-scan fallback.
     r12 = data["r12_over_d"]
     q = data["q"]
     r13 = data["r13_over_d_rq"]
@@ -243,22 +351,6 @@ def analyze_asymmetric_map() -> None:
             "eta3_sym",
         ],
     )
-
-    # Example map at r12/d=1.2, q=1.5, alpha=0.
-    ir = _nearest_index(r12, 1.20)
-    iq = _nearest_index(q, 1.50)
-    ia = _nearest_index(alpha, 0.0)
-    if bool(valid[ir, iq]):
-        _heatmap(
-            x=gamma,
-            y=psi,
-            z=delta[ir, iq, :, :, ia].T,
-            xlabel="gamma, deg",
-            ylabel="psi, deg",
-            title=f"Asymmetric Delta3, J; r12/d={r12[ir]:.2f}, q={q[iq]:.2f}, alpha={alpha[ia]:.0f}",
-            path=FIG_DIR / f"fig_asymmetric_Delta3_gamma_psi_r12_{r12[ir]:.2f}_q{q[iq]:.2f}.png",
-        )
-
 
 def analyze_lmax_convergence() -> None:
     if not LMAX_CONVERGENCE_FILE.exists():
